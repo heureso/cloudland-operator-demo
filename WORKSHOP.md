@@ -277,7 +277,107 @@ Delete the CR and observe the deployment being deleted now
 ```bash
 kd config/samples/operator_v1alpha1_minio.yaml
 ```
+### 5. Conditions
+Add a condition field to the MinioStatus struct
+```go
+// MinioStatus defines the observed state of Minio
+type MinioStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
 
+	Conditions []metav1.Condition `json:"conditions"`
+}
+```
+Add some printer columns for better readability
+```go
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
+//+kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
+//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].message",description="" 
+```
+
+Generate the new CRD and install it into the K8s cluster
+```bash
+make generate
+make manifests
+make install
+```
+
+Define Conditions in the error handling
+```go
+func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// Get the operator custom resource
+	minioCR := &operatorv1alpha1.Minio{}
+	err := r.Get(ctx, req.NamespacedName, minioCR)
+
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Operator resource object not found.")
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		logger.Error(err, "Error getting operator resource object")
+		meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             operatorv1alpha1.ReasonCRNotAvailable,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            fmt.Sprintf("unable to get operator custom resource: %s", err.Error()),
+		})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+	}
+
+	// Read the standard deployment
+	deployment := assets.GetDeploymentFromFile("manifests/minio-deployment.yaml")
+
+	// modify deployment according to cr
+	deployment.Namespace = req.Namespace
+	deployment.Name = req.Name
+
+	// List the bootstrapOperator in the OwnerReference of the deployment, in order to help garbage collection
+	ctrl.SetControllerReference(minioCR, deployment, r.Scheme)
+
+	_, err = controllerutil.CreateOrPatch(ctx, r.Client, deployment, func() error {
+		if minioCR.Spec.User != "" {
+			deployment.Spec.Template.Spec.Containers[0].Env[0].Value = minioCR.Spec.User
+		}
+		if minioCR.Spec.Password != "" {
+			deployment.Spec.Template.Spec.Containers[0].Env[1].Value = minioCR.Spec.Password
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Error(err, "Error updating minio deployment.")
+		meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             operatorv1alpha1.ReasonOperandDeploymentFailed,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            fmt.Sprintf("unable to update operand deployment: %s", err.Error()),
+		})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+	}
+
+	meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             operatorv1alpha1.ReasonSucceeded,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Message:            "operator successfully reconciling",
+	})
+
+	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+}
+
+```
+
+Restart the operator locally via
+```go
+make run
+``
+
+### 6. Write a simple Test
 
 
 

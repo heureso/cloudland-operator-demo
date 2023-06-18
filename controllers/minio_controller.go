@@ -18,9 +18,13 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -63,7 +67,13 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		logger.Error(err, "Error getting operator resource object")
-
+		meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             operatorv1alpha1.ReasonCRNotAvailable,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            fmt.Sprintf("unable to get operator custom resource: %s", err.Error()),
+		})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 	}
 
@@ -90,10 +100,25 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if err != nil {
 		logger.Error(err, "Error updating minio deployment.")
+		meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             operatorv1alpha1.ReasonOperandDeploymentFailed,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            fmt.Sprintf("unable to update operand deployment: %s", err.Error()),
+		})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 	}
 
-	return ctrl.Result{}, nil
+	meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             operatorv1alpha1.ReasonSucceeded,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Message:            "operator successfully reconciling",
+	})
+
+	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 }
 
 // SetupWithManager sets up the controller with the Manager.
