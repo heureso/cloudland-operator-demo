@@ -19,12 +19,16 @@ package controllers
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	operatorv1alpha1 "github.com/cloudland-operator-demo/demo-operator/api/v1alpha1"
+	"github.com/cloudland-operator-demo/demo-operator/assets"
 )
 
 // MinioReconciler reconciles a Minio object
@@ -47,9 +51,43 @@ type MinioReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Get the operator custom resource
+	minioCR := &operatorv1alpha1.Minio{}
+	err := r.Get(ctx, req.NamespacedName, minioCR)
+
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Operator resource object not found.")
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		logger.Error(err, "Error getting operator resource object")
+		
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+	}
+
+	// Read the standard deployment
+	deployment := assets.GetDeploymentFromFile("manifests/minio-deployment.yaml")
+
+	// modify deployment according to cr
+	deployment.Namespace = req.Namespace
+	deployment.Name = req.Name
+
+	_, err = controllerutil.CreateOrPatch(ctx, r.Client, deployment, func() error {
+		if minioCR.Spec.User != "" {
+			deployment.Spec.Template.Spec.Containers[0].Env[0].Value = minioCR.Spec.User
+		}
+		if minioCR.Spec.Password != "" {
+			deployment.Spec.Template.Spec.Containers[0].Env[1].Value = minioCR.Spec.Password
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Error(err, "Error updating minio deployment.")
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+	}
 
 	return ctrl.Result{}, nil
 }
