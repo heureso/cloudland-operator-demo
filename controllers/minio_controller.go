@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -73,6 +74,9 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	deployment.Namespace = req.Namespace
 	deployment.Name = req.Name
 
+	// List the bootstrapOperator in the OwnerReference of the deployment, in order to help garbage collection
+	ctrl.SetControllerReference(minioCR, deployment, r.Scheme)
+
 	_, err = controllerutil.CreateOrPatch(ctx, r.Client, deployment, func() error {
 		if minioCR.Spec.User != "" {
 			deployment.Spec.Template.Spec.Containers[0].Env[0].Value = minioCR.Spec.User
@@ -96,5 +100,6 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 func (r *MinioReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1alpha1.Minio{}).
+		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }

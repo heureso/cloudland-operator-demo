@@ -1,9 +1,9 @@
 ## Steps
-###1. Initialize operator SDK (Already done)
+### 1. Initialize operator SDK (Already done)
 ```bash
 operator-sdk init --domain heureso.com --repo github.com/cloudland-operator-demo/demo-operator
 ```
-###2. Create API
+### 2. Create API
 ```bash
 operator-sdk create api --group operator --version v1alpha1 --kind Minio --resource --controller
 ```
@@ -31,7 +31,7 @@ Run "make manifests" to generate a CRD that is based on the API we just defined 
 ```bash
 make manifests
 ```
-###3. Add The Deployment Manifests and a simplified way of generating the deployment
+### 3. Add The Deployment Manifests and a simplified way of generating the deployment
 Create a directory "assets/manifests" and paste the following
 ```yaml
 apiVersion: apps/v1
@@ -232,7 +232,51 @@ kgp
 ```
 The deployment is not deleted :(
 
-###4. Ownership & Reconciliation loop
+Delete the deployment manually
+```bash
+kubcetl delete deployment minio-sample
+```
+
+### 4. Ownership & Reconciliation loop
+Actually control the deployment via Ownership
+add the following lines to the code
+```go
+(...)
+  // modify deployment according to cr
+deployment.Namespace = req.Namespace
+deployment.Name = req.Name
+
+// List the bootstrapOperator in the OwnerReference of the deployment, in order to help garbage collection
+ctrl.SetControllerReference(operatorCR, deployment, r.Scheme)
+(...)
+```
+Also modify the setupWithManager Function
+```go
+// SetupWithManager sets up the controller with the Manager.
+func (r *BootstrapOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&operatorv1alpha1.BootstrapOperator{}).
+		// The operator will also react on changes of deployments it owns (line 98)
+		Owns(&appsv1.Deployment{}).
+		Complete(r)
+}
+```
+Restart the operator locally with
+```bash
+make run
+```
+Apply the CR
+```bash
+ka config/samples/operator_v1alpha1_minio.yaml
+```
+Check for the pods
+```bash
+kgp
+```
+Delete the CR and observe the deployment being deleted now
+```bash
+kd config/samples/operator_v1alpha1_minio.yaml
+```
 
 
 

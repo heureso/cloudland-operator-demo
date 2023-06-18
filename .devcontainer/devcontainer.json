@@ -5,9 +5,10 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "golang.Go",
-        "ms-vscode.makefile-tools"
-	    ]
+		"golang.Go",
+		"ms-vscode.makefile-tools",
+		"yzhang.markdown-all-in-one"
+	]
     }
   }
 }
