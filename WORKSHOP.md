@@ -643,3 +643,5 @@ var _ = Describe("Minio Controller", func() {
 	})
 })
 ```
+
+### 7. Docker build - deploy to k8s (with rbac!)
