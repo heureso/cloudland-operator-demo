@@ -29,12 +29,10 @@ type MinioSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// User is the user needed to login to Minio UI
-	// +kubebuilder:default=MINIO_USER
 	// +kubebuilder:validation:Required
 	User string `json:"user"`
 
 	// Password is the user password needed to login to Minio UI
-	// +kubebuilder:default=MINIO_PASSWORD
 	// +kubebuilder:validation:Required
 	Password string `json:"password"`
 

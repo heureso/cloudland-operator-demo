@@ -62,7 +62,7 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		logger.Error(err, "Error getting operator resource object")
-		
+
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 	}
 

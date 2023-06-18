@@ -40,12 +40,10 @@ spec:
                   the Operator to redeploy the Operand
                 type: string
               password:
-                default: MINIO_PASSWORD
                 description: Password is the user password needed to login to Minio
                   UI
                 type: string
               user:
-                default: MINIO_USER
                 description: User is the user needed to login to Minio UI
                 type: string
             required:

@@ -1,9 +1,9 @@
-### Steps
-1. Initialize operator SDK (Already done)
+## Steps
+###1. Initialize operator SDK (Already done)
 ```bash
 operator-sdk init --domain heureso.com --repo github.com/cloudland-operator-demo/demo-operator
 ```
-2. Create API
+###2. Create API
 ```bash
 operator-sdk create api --group operator --version v1alpha1 --kind Minio --resource --controller
 ```
@@ -31,7 +31,7 @@ Run "make manifests" to generate a CRD that is based on the API we just defined 
 ```bash
 make manifests
 ```
-3. Add The Deployment Manifests and a simplified way of generating the deployment
+###3. Add The Deployment Manifests and a simplified way of generating the deployment
 Create a directory "assets/manifests" and paste the following
 ```yaml
 apiVersion: apps/v1
@@ -159,8 +159,80 @@ func GetServiceFromFile(name string) *v1.Service {
 }
 ```
 Write the control loop
+```go
+func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
 
+	// Get the operator custom resource
+	minioCR := &operatorv1alpha1.Minio{}
+	err := r.Get(ctx, req.NamespacedName, minioCR)
 
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Operator resource object not found.")
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		logger.Error(err, "Error getting operator resource object")
+
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+	}
+
+	// Read the standard deployment
+	deployment := assets.GetDeploymentFromFile("manifests/minio-deployment.yaml")
+
+	// modify deployment according to cr
+	deployment.Namespace = req.Namespace
+	deployment.Name = req.Name
+
+	_, err = controllerutil.CreateOrPatch(ctx, r.Client, deployment, func() error {
+		if minioCR.Spec.User != "" {
+			deployment.Spec.Template.Spec.Containers[0].Env[0].Value = minioCR.Spec.User
+		}
+		if minioCR.Spec.Password != "" {
+			deployment.Spec.Template.Spec.Containers[0].Env[1].Value = minioCR.Spec.Password
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Error(err, "Error updating minio deployment.")
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
+	}
+
+	return ctrl.Result{}, nil
+}
+```
+Install the custom resource definition (CRD) into the cluster
+```bash
+make install
+```
+Run the operator locally against the cluster
+```bash
+make run
+```
+Apply the sample CR from "config/samples/operator_v1apha1_minio.yaml"
+```bash
+kubectl apply -f config/samples/operator_v1apha1_minio.yaml
+```
+Check if the pod is being started
+```bash
+kubectl get pods
+```
+Forward the port of minio
+```bash
+k port-forward deployments/minio-sample 9999:9001
+```
+Accept the port-forward from VsCode
+Browser opens and you can log in with your provided Credentials
+
+Delete the custom resource (CR)
+```bash
+kd config/samples/operator_v1alpha1_minio.yaml
+kgp
+```
+The deployment is not deleted :(
+
+###4. Ownership & Reconciliation loop
 
 
 

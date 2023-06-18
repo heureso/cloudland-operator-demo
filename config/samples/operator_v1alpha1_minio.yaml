@@ -9,4 +9,5 @@ metadata:
     app.kubernetes.io/created-by: cloudland-operator-demo
   name: minio-sample
 spec:
-  # TODO(user): Add fields here
+  user: "admin"
+  password: "admin1234"
