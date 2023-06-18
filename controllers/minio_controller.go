@@ -110,13 +110,36 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 	}
 
-	meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionTrue,
-		Reason:             operatorv1alpha1.ReasonSucceeded,
-		LastTransitionTime: metav1.NewTime(time.Now()),
-		Message:            "operator successfully reconciling",
-	})
+	availableCond := getDeploymentCondition(deployment.Status.Conditions, appsv1.DeploymentAvailable)
+	var status metav1.ConditionStatus
+	if availableCond == nil {
+		meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionUnknown,
+			Reason:             operatorv1alpha1.ReasonDeploymentNotAvailable,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            "operator reconciling",
+		})
+	} else {
+		status = metav1.ConditionStatus(availableCond.Status)
+		if status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             status,
+				Reason:             operatorv1alpha1.ReasonSucceeded,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            "operator successfully reconciling",
+			})
+		} else {
+			meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionStatus(availableCond.Status),
+				Reason:             operatorv1alpha1.ReasonDeploymentNotAvailable,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            "operator reconciling",
+			})
+		}
+	}
 
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 }
@@ -127,4 +150,15 @@ func (r *MinioReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&operatorv1alpha1.Minio{}).
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
+}
+
+func getDeploymentCondition(conditions []appsv1.DeploymentCondition,
+	conditionType appsv1.DeploymentConditionType) *appsv1.DeploymentCondition {
+	for _, condition := range conditions {
+		if condition.Type == conditionType {
+			return &condition
+		}
+	}
+
+	return nil
 }

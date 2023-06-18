@@ -42,7 +42,30 @@ var _ = Describe("Minio Controller", func() {
 					Password: "supersecret1234",
 				},
 			}
+			// create a test instance of the minio crd
 			Expect(k8sClient.Create(ctx, minio)).To(Succeed())
+
+			// wait for the deployment to appear
+			deployment := &appsv1.Deployment{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: namespace.Name}, deployment)
+
+				return err == nil && deployment.Name == "test"
+			}, time.Second*10, time.Second).Should(BeTrue())
+
+			// mock the deployments behaviour by modifying its conditions, so our reconciliation loop is triggered by the fired event
+			deployment.Status.Conditions = append(deployment.Status.Conditions, appsv1.DeploymentCondition{
+				Type:               appsv1.DeploymentAvailable,
+				Status:             v1.ConditionTrue,
+				LastUpdateTime:     metav1.NewTime(time.Now()),
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Reason:             "MinimumReplicasAvailable",
+				Message:            "Deployment has minimum availability.",
+			})
+
+			Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
+
+			// assert the minio cr becomes ready
 			Eventually(func() bool {
 				Expect(k8sClient.Get(ctx,
 					types.NamespacedName{Name: "test", Namespace: namespace.Name}, minio,
