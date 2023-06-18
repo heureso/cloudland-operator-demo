@@ -1,0 +1,27 @@
+# permissions for end users to view minios.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: minio-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: cloudland-operator-demo
+    app.kubernetes.io/part-of: cloudland-operator-demo
+    app.kubernetes.io/managed-by: kustomize
+  name: minio-viewer-role
+rules:
+- apiGroups:
+  - operator.heureso.com
+  resources:
+  - minios
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - operator.heureso.com
+  resources:
+  - minios/status
+  verbs:
+  - get

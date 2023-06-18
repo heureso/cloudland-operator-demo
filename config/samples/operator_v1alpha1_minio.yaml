@@ -1,0 +1,12 @@
+apiVersion: operator.heureso.com/v1alpha1
+kind: Minio
+metadata:
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: minio-sample
+    app.kubernetes.io/part-of: cloudland-operator-demo
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: cloudland-operator-demo
+  name: minio-sample
+spec:
+  # TODO(user): Add fields here

@@ -1,0 +1,31 @@
+# permissions for end users to edit minios.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: minio-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: cloudland-operator-demo
+    app.kubernetes.io/part-of: cloudland-operator-demo
+    app.kubernetes.io/managed-by: kustomize
+  name: minio-editor-role
+rules:
+- apiGroups:
+  - operator.heureso.com
+  resources:
+  - minios
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - operator.heureso.com
+  resources:
+  - minios/status
+  verbs:
+  - get
