@@ -370,14 +370,276 @@ func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, minioCR)})
 }
 
-```
+```bash
 
 Restart the operator locally via
 ```go
 make run
-``
+```
 
 ### 6. Write a simple Test
 
+Replace `controllers/suite_test.go` with the following:
+```go
+/*
+Copyright 2023.
 
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controllers
+
+import (
+	"context"
+	"k8s.io/apimachinery/pkg/util/rand"
+	"path/filepath"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"testing"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	operatorv1alpha1 "github.com/cloudland-operator-demo/demo-operator/api/v1alpha1"
+	//+kubebuilder:scaffold:imports
+)
+
+// These tests use Ginkgo (BDD-style Go testing framework). Refer to
+// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
+
+var cfg *rest.Config
+var k8sClient client.Client
+var testEnv *envtest.Environment
+var ctx context.Context
+var cancel context.CancelFunc
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+func TestAPIs(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	RunSpecs(t, "Controller Suite")
+}
+
+var _ = BeforeSuite(func() {
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+
+	ctx, cancel = context.WithCancel(context.TODO())
+
+	By("bootstrapping test environment")
+	testEnv = &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+
+	var err error
+	// cfg is defined in this file globally.
+	cfg, err = testEnv.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg).NotTo(BeNil())
+
+	err = operatorv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	//+kubebuilder:scaffold:scheme
+
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClient).NotTo(BeNil())
+
+	By("creating controller")
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 scheme.Scheme,
+		MetricsBindAddress:     ":8082",
+		HealthProbeBindAddress: ":8083",
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (&MinioReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	go func() {
+		defer GinkgoRecover()
+		err = mgr.Start(ctx)
+		Expect(err).NotTo(HaveOccurred(), "failed to run manager")
+	}()
+
+})
+
+var _ = AfterSuite(func() {
+	cancel()
+	By("tearing down the test environment")
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+})
+
+func randStringRunes(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+
+	return string(b)
+}
+
+```
+
+Replace the last `meta.setConditionStatus` statement in the `Reconcile`-Method with to following:
+```go
+	availableCond := getDeploymentCondition(deployment.Status.Conditions, appsv1.DeploymentAvailable)
+	var status metav1.ConditionStatus
+	if availableCond == nil {
+		meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionUnknown,
+			Reason:             operatorv1alpha1.ReasonDeploymentNotAvailable,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            "operator reconciling",
+		})
+	} else {
+		status = metav1.ConditionStatus(availableCond.Status)
+		if status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             status,
+				Reason:             operatorv1alpha1.ReasonSucceeded,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            "operator successfully reconciling",
+			})
+		} else {
+			meta.SetStatusCondition(&minioCR.Status.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionStatus(availableCond.Status),
+				Reason:             operatorv1alpha1.ReasonDeploymentNotAvailable,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            "operator reconciling",
+			})
+		}
+	}
+```
+
+Add the function `getDeploymentCondition` to `controllers/minio_controller.go`:
+```go
+func getDeploymentCondition(conditions []appsv1.DeploymentCondition,
+	conditionType appsv1.DeploymentConditionType) *appsv1.DeploymentCondition {
+	for _, condition := range conditions {
+		if condition.Type == conditionType {
+			return &condition
+		}
+	}
+
+	return nil
+}
+```
+
+Create a test which mocks the deployment and asserts the behaviour of our reconciliation loop to reflect the availability of the deployment:
+create a new file `controllers/minio_controller_test.go` with the following contents:
+```go
+package controllers
+
+import (
+	"fmt"
+	"time"
+
+	operatorv1alpha1 "github.com/cloudland-operator-demo/demo-operator/api/v1alpha1"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+var _ = Describe("Minio Controller", func() {
+	var namespace *v1.Namespace
+	var minio *operatorv1alpha1.Minio
+
+	BeforeEach(func() {
+		namespace = &v1.Namespace{}
+		namespace.Name = fmt.Sprintf("test-%s", randStringRunes(5))
+		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+	})
+
+	AfterEach(func() {
+		Expect(k8sClient.Delete(ctx, minio)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, namespace)).To(Succeed())
+	})
+
+	Context("Creating a minio instance", func() {
+		It("should result in Ready = true", func() {
+			minio = &operatorv1alpha1.Minio{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: namespace.Name,
+				},
+				Spec: operatorv1alpha1.MinioSpec{
+					User:     "admin",
+					Password: "supersecret1234",
+				},
+			}
+			// create a test instance of the minio crd
+			Expect(k8sClient.Create(ctx, minio)).To(Succeed())
+
+			// wait for the deployment to appear
+			deployment := &appsv1.Deployment{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: namespace.Name}, deployment)
+
+				return err == nil && deployment.Name == "test"
+			}, time.Second*10, time.Second).Should(BeTrue())
+
+			// mock the deployments behaviour by modifying its conditions, so our reconciliation loop is triggered by the fired event
+			deployment.Status.Conditions = append(deployment.Status.Conditions, appsv1.DeploymentCondition{
+				Type:               appsv1.DeploymentAvailable,
+				Status:             v1.ConditionTrue,
+				LastUpdateTime:     metav1.NewTime(time.Now()),
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Reason:             "MinimumReplicasAvailable",
+				Message:            "Deployment has minimum availability.",
+			})
+
+			Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
+
+			// assert the minio cr becomes ready
+			Eventually(func() bool {
+				Expect(k8sClient.Get(ctx,
+					types.NamespacedName{Name: "test", Namespace: namespace.Name}, minio,
+				)).To(Succeed())
+
+				return meta.IsStatusConditionTrue(minio.Status.Conditions, "Ready")
+			}, time.Second*10, time.Second).Should(BeTrue())
+
+			var dl appsv1.DeploymentList
+			Expect(k8sClient.List(ctx, &dl, client.InNamespace(namespace.Name)))
+
+			fmt.Println(dl)
+		})
+	})
+})
+```
