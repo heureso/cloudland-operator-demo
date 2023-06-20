@@ -645,3 +645,50 @@ var _ = Describe("Minio Controller", func() {
 ```
 
 ### 7. Docker build - deploy to k8s (with rbac!)
+We have to tell Kubebuilder which access roles to assign
+Replace in `controllers/minio_controller.go` the following lines:
+```go
+//+kubebuilder:rbac:groups=operator.heureso.com,resources=minios,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=operator.heureso.com,resources=minios/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=operator.heureso.com,resources=minios/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+```
+
+Stop the locally running operator in case it is still running.
+
+Regenerate the manifests, as we added an annotation
+```bash
+make manifests
+```
+
+We want to push the image to a local registry provided by k3d.
+Modify the make-file in line 50 as follows:
+```bash
+IMG ?= registry.localhost:5000/controller:latest
+```
+
+Add the assets to the Dockerfile:
+```bash
+COPY assets/ assets/
+```
+
+Then trigger the build via make:
+```bash
+make docker-build
+```
+
+Then push the generated docker image to the local repository
+```bash
+make docker-push
+```
+
+Deploy the operator to the local kubernetes cluster.
+```bash
+make deploy
+```
+Check the cr and deployment of minio:
+```bash
+k -n cloudland-operator-demo-system get minios.operator.heureso.com
+k -n cloudland-operator-demo-system get pods 
+```
