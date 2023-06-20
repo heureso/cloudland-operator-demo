@@ -34,6 +34,7 @@ import (
 
 	operatorv1alpha1 "github.com/cloudland-operator-demo/demo-operator/api/v1alpha1"
 	"github.com/cloudland-operator-demo/demo-operator/assets"
+	"github.com/cloudland-operator-demo/demo-operator/controllers/metrics"
 )
 
 // MinioReconciler reconciles a Minio object
@@ -59,6 +60,9 @@ type MinioReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *MinioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	// Count the reconcile attempts
+	metrics.ReconcilesTotal.Inc()
 
 	// Get the operator custom resource
 	minioCR := &operatorv1alpha1.Minio{}

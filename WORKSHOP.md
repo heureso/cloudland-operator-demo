@@ -739,3 +739,42 @@ curl localhost:8081/readyz
 
 
 Healthchecks for the operand were basically delegated to the deployment controller. See 06-test
+
+### 9. Metrics
+
+Create a folder `controller/metrics` and inside it a file `metrics.go`
+
+Create a new metrics registry and register a new metric `minio_reconciles_total`
+```go
+package metrics
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+)
+
+var (
+	ReconcilesTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "minio_reconciles_total",
+			Help: "Number of total reconciliation attempts",
+		},
+	)
+)
+
+func init() {
+	metrics.Registry.MustRegister(ReconcilesTotal)
+}
+```
+
+Increment the created metric in the reconciliation loop.
+```go
+	// Count the reconcile attempts
+	metrics.ReconcilesTotal.Inc()
+```
+
+Install the observability stack
+```bash
+cd observability
+./install.sh
+```
