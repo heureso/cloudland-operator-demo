@@ -698,3 +698,44 @@ Check the cr and deployment of minio:
 k -n cloudland-operator-demo-system get minios.operator.heureso.com
 k -n cloudland-operator-demo-system get pods 
 ```
+
+### 8. Healthchecks
+Basic healthchecks for the operator were already added by scaffolding the project.
+
+See `main.go` line 101-108:
+```go
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+```
+
+Instead of `healthz.Ping` you could implement your own functions if extended functionality is needed. They just need to implement this contract:
+
+```go
+func(req *http.Request) error
+````
+
+Scaffolding also added a flag on which port to bind the listener responding to the healthchecks. See `main.go` line 56:
+
+```go
+flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+````
+
+To test this, just run the operator locally and curl the endpoint:
+```bash
+make run
+```
+
+In another terminal window:
+```bash
+curl localhost:8081/healthz
+curl localhost:8081/readyz
+```
+
+
+Healthchecks for the operand were basically delegated to the deployment controller. See 06-test
