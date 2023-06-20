@@ -813,3 +813,31 @@ Navigate to prometheus ui in the bowser or port-forward it
 ```bash
 k -n observability port-forward prometheus-k8s-0 9090:9090
 ```
+
+To generate basic grafana dashboards, use the kubebuilder grafana plugin:
+
+```bash
+operator-sdk edit --plugins grafana.kubebuilder.io/v1-alpha
+````
+
+This creates a folder `grafana` with dashboards using the controller runtime default metrics.
+
+To generate a dashboard for our custom metric, update the file `grafana/custom-metrics/config.yaml` with the following:
+```yaml
+customMetrics:
+  - metric: minio_reconciles_total
+    type: counter
+    unit: none
+````
+
+Then run the grafana plugin again to generate another dashboard in `grafana/custom-metrics/`:
+
+```bash
+operator-sdk edit --plugins grafana.kubebuilder.io/v1-alpha
+````
+
+Port-forward grafana and import the dashboards:
+```bash
+k port-forward -n observability svc/grafana 3000:3000
+```
+
