@@ -778,3 +778,38 @@ Install the observability stack
 cd observability
 ./install.sh
 ```
+
+Tell kubebuilder to create a serviceMonitor for the operator.
+Uncomment the following line in `config/default/kustomization.yaml`
+```yaml
+# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+- ../prometheus
+```
+
+Add an ImagePullPolicy Always, so that the new image gets pulled.
+Add the following line to `assets/manifests/minio-deployment.yaml`
+```yaml
+(...)
+image: quay.io/minio/minio:RELEASE.2022-06-17T02-00-35Z
+imagePullPolicy: Always
+(...)
+```
+
+Rebuild the Operator and deploy it again
+```bash
+cd ..
+make docker-build
+make docker-push
+k -n cloudland-operator-demo-system delete deployments.apps cloudland-operator-demo-controller-manager 
+make deploy
+```
+Delete the minio custom resource and create it again
+```bash
+k delete minios.operator.heureso.com minio-sample
+ka config/samples/operator_v1alpha1_minio.yaml
+```
+
+Navigate to prometheus ui in the bowser or port-forward it
+```bash
+k -n observability port-forward prometheus-k8s-0 9090:9090
+```
