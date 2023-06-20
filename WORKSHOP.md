@@ -687,6 +687,12 @@ Deploy the operator to the local kubernetes cluster.
 ```bash
 make deploy
 ```
+
+Apply the minio CR:
+```bash
+ka config/samples/operator_v1alpha1_minio.yaml
+```
+
 Check the cr and deployment of minio:
 ```bash
 k -n cloudland-operator-demo-system get minios.operator.heureso.com
