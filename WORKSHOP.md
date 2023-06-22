@@ -739,3 +739,166 @@ curl localhost:8081/readyz
 
 
 Healthchecks for the operand were basically delegated to the deployment controller. See 06-test
+
+### 9. Metrics
+
+Create a folder `controller/metrics` and inside it a file `metrics.go`
+
+Create a new metrics registry and register a new metric `minio_reconciles_total`
+```go
+package metrics
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+)
+
+var (
+	ReconcilesTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "minio_reconciles_total",
+			Help: "Number of total reconciliation attempts",
+		},
+	)
+)
+
+func init() {
+	metrics.Registry.MustRegister(ReconcilesTotal)
+}
+```
+
+Increment the created metric in the reconciliation loop.
+```go
+	// Count the reconcile attempts
+	metrics.ReconcilesTotal.Inc()
+```
+
+Install the observability stack
+```bash
+cd observability
+./install.sh
+```
+
+Tell kubebuilder to create a serviceMonitor for the operator.
+Uncomment the following line in `config/default/kustomization.yaml`
+```yaml
+# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+- ../prometheus
+```
+
+Add an ImagePullPolicy Always, so that the new image gets pulled.
+Add the following line to `assets/manifests/minio-deployment.yaml`
+```yaml
+(...)
+image: quay.io/minio/minio:RELEASE.2022-06-17T02-00-35Z
+imagePullPolicy: Always
+(...)
+```
+
+Rebuild the Operator and deploy it again
+```bash
+cd ..
+make docker-build
+make docker-push
+k -n cloudland-operator-demo-system delete deployments.apps cloudland-operator-demo-controller-manager 
+make deploy
+```
+Delete the minio custom resource and create it again
+```bash
+k delete minios.operator.heureso.com minio-sample
+ka config/samples/operator_v1alpha1_minio.yaml
+```
+
+Navigate to prometheus ui in the bowser or port-forward it
+```bash
+k -n observability port-forward prometheus-k8s-0 9090:9090
+```
+
+To generate basic grafana dashboards, use the kubebuilder grafana plugin:
+
+```bash
+operator-sdk edit --plugins grafana.kubebuilder.io/v1-alpha
+````
+
+This creates a folder `grafana` with dashboards using the controller runtime default metrics.
+
+To generate a dashboard for our custom metric, update the file `grafana/custom-metrics/config.yaml` with the following:
+```yaml
+customMetrics:
+  - metric: minio_reconciles_total
+    type: counter
+    unit: none
+````
+
+Then run the grafana plugin again to generate another dashboard in `grafana/custom-metrics/`:
+
+```bash
+operator-sdk edit --plugins grafana.kubebuilder.io/v1-alpha
+````
+
+Port-forward grafana and import the dashboards:
+```bash
+k port-forward -n observability svc/grafana 3000:3000
+```
+
+### 10. LeaderElection
+
+Leader is supported by default by the controller runtime. See `main.go` line 68-74:
+```go
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                 scheme,
+		MetricsBindAddress:     metricsAddr,
+		Port:                   9443,
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "2e630bd6.heureso.com",
+```
+
+To test this, deploy the operator to k8s again if it is not running anymore:
+```bash
+make deploy
+```
+
+Then scale it up to 2 instances:
+```bash
+k scale -n cloudland-operator-demo-system deployment cloudland-operator-demo-controller-manager --replicas 2
+````
+
+In the logs of the new pod you should see the operator attempting to acquire the lease:
+```bash
+I0620 12:34:48.705426       1 leaderelection.go:248] attempting to acquire leader lease cloudland-operator-demo-system/2e630bd6.heureso.com...
+````
+
+Kill the old pod:
+```bash
+k -n cloudland-operator-demo-system delete pod <old-pod>
+```
+
+In the logs of the new pod you should now observe how it takes over and continues operations:
+```bash
+I0620 12:36:15.170970       1 leaderelection.go:258] successfully acquired lease cloudland-operator-demo-system/2e630bd6.heureso.com
+2023-06-20T12:36:15Z    DEBUG   events  cloudland-operator-demo-controller-manager-6f9bd79cfc-rwhmq_fbf0a17a-2470-428e-87fb-bb902ce99682 became leader  {"type": "Normal", "object": {"kind":"Lease","namespace":"cloudland-operator-demo-system","name":"2e630bd6.heureso.com","uid":"2864c286-e600-49f1-8bb7-2063953d7da3","apiVersion":"coordination.k8s.io/v1","resourceVersion":"1281"}, "reason": "LeaderElection"}
+2023-06-20T12:36:15Z    INFO    Starting EventSource    {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio", "source": "kind source: *v1alpha1.Minio"}
+2023-06-20T12:36:15Z    INFO    Starting EventSource    {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio", "source": "kind source: *v1.Deployment"}
+2023-06-20T12:36:15Z    INFO    Starting Controller     {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio"}
+2023-06-20T12:36:15Z    INFO    Starting workers        {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio", "worker count": 1}
+````
+
+
+The controller runtime implements this behaviour via the coordination API:
+```yaml
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  creationTimestamp: "2023-06-20T12:32:48Z"
+  name: 2e630bd6.heureso.com
+  namespace: cloudland-operator-demo-system
+  resourceVersion: "1787"
+  uid: 2864c286-e600-49f1-8bb7-2063953d7da3
+spec:
+  acquireTime: "2023-06-20T12:36:15.163905Z"
+  holderIdentity: cloudland-operator-demo-controller-manager-6f9bd79cfc-rwhmq_fbf0a17a-2470-428e-87fb-bb902ce99682
+  leaseDurationSeconds: 15
+  leaseTransitions: 1
+  renewTime: "2023-06-20T12:46:47.325592Z"
+```
