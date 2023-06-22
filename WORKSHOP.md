@@ -841,3 +841,64 @@ Port-forward grafana and import the dashboards:
 k port-forward -n observability svc/grafana 3000:3000
 ```
 
+### 10. LeaderElection
+
+Leader is supported by default by the controller runtime. See `main.go` line 68-74:
+```go
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                 scheme,
+		MetricsBindAddress:     metricsAddr,
+		Port:                   9443,
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "2e630bd6.heureso.com",
+```
+
+To test this, deploy the operator to k8s again if it is not running anymore:
+```bash
+make deploy
+```
+
+Then scale it up to 2 instances:
+```bash
+k scale -n cloudland-operator-demo-system deployment cloudland-operator-demo-controller-manager --replicas 2
+````
+
+In the logs of the new pod you should see the operator attempting to acquire the lease:
+```bash
+I0620 12:34:48.705426       1 leaderelection.go:248] attempting to acquire leader lease cloudland-operator-demo-system/2e630bd6.heureso.com...
+````
+
+Kill the old pod:
+```bash
+k -n cloudland-operator-demo-system delete pod <old-pod>
+```
+
+In the logs of the new pod you should now observe how it takes over and continues operations:
+```bash
+I0620 12:36:15.170970       1 leaderelection.go:258] successfully acquired lease cloudland-operator-demo-system/2e630bd6.heureso.com
+2023-06-20T12:36:15Z    DEBUG   events  cloudland-operator-demo-controller-manager-6f9bd79cfc-rwhmq_fbf0a17a-2470-428e-87fb-bb902ce99682 became leader  {"type": "Normal", "object": {"kind":"Lease","namespace":"cloudland-operator-demo-system","name":"2e630bd6.heureso.com","uid":"2864c286-e600-49f1-8bb7-2063953d7da3","apiVersion":"coordination.k8s.io/v1","resourceVersion":"1281"}, "reason": "LeaderElection"}
+2023-06-20T12:36:15Z    INFO    Starting EventSource    {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio", "source": "kind source: *v1alpha1.Minio"}
+2023-06-20T12:36:15Z    INFO    Starting EventSource    {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio", "source": "kind source: *v1.Deployment"}
+2023-06-20T12:36:15Z    INFO    Starting Controller     {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio"}
+2023-06-20T12:36:15Z    INFO    Starting workers        {"controller": "minio", "controllerGroup": "operator.heureso.com", "controllerKind": "Minio", "worker count": 1}
+````
+
+
+The controller runtime implements this behaviour via the coordination API:
+```yaml
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  creationTimestamp: "2023-06-20T12:32:48Z"
+  name: 2e630bd6.heureso.com
+  namespace: cloudland-operator-demo-system
+  resourceVersion: "1787"
+  uid: 2864c286-e600-49f1-8bb7-2063953d7da3
+spec:
+  acquireTime: "2023-06-20T12:36:15.163905Z"
+  holderIdentity: cloudland-operator-demo-controller-manager-6f9bd79cfc-rwhmq_fbf0a17a-2470-428e-87fb-bb902ce99682
+  leaseDurationSeconds: 15
+  leaseTransitions: 1
+  renewTime: "2023-06-20T12:46:47.325592Z"
+```
